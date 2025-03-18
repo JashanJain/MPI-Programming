@@ -115,71 +115,85 @@ int main(int argc, char** argv) {
 
 
 ##Question 3
-#include <mpi.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <mpi.h>
 #include <math.h>
 
-#define MAX_VALUE 100  
-
-int is_prime(int num) {
-    if (num < 2) return 0;
-    for (int i = 2; i <= sqrt(num); i++) {
-        if (num % i == 0) return 0; 
+int is_prime(int n) {
+    if (n <= 1) return 0;
+    if (n <= 3) return 1;
+    if (n % 2 == 0 || n % 3 == 0) return 0;
+    for (int i = 5; i * i <= n; i += 6) {
+        if (n % i == 0 || n % (i + 2) == 0) return 0;
     }
-    return 1;  
+    return 1;
 }
 
 int main(int argc, char** argv) {
     int rank, size;
-    MPI_Init(&argc, &argv);  
+    MPI_Init(&argc, &argv);
     MPI_Comm_rank(MPI_COMM_WORLD, &rank);
     MPI_Comm_size(MPI_COMM_WORLD, &size);
 
-    if (rank == 0) {  
-        int num = 2, active_slaves = size - 1;  
-        int result, sender;
+    if (size < 2) {
+        fprintf(stderr, "This program must be run with at least 2 processes.\n");
+        MPI_Abort(MPI_COMM_WORLD, 1);
+        return 1;
+    }
+
+    int max_value = 100; // Example maximum value
+    if (argc > 1) {
+        max_value = atoi(argv[1]);
+    }
+
+    if (rank == 0) { // Master process
+        int next_number = 2;
+        int received_number;
         MPI_Status status;
 
-        printf("Finding primes up to %d using %d processes...\n", MAX_VALUE, size);
+        while (next_number <= max_value) {
+            MPI_Recv(&received_number, 1, MPI_INT, MPI_ANY_SOURCE, 0, MPI_COMM_WORLD, &status);
+
+            if (received_number == 0) {
+                // Slave is requesting a number
+            } else if (received_number > 0) {
+                printf("%d is prime\n", received_number);
+            } else {
+                //printf("%d is not prime\n", -received_number);
+            }
+
+            if (next_number <= max_value) {
+                MPI_Send(&next_number, 1, MPI_INT, status.MPI_SOURCE, 0, MPI_COMM_WORLD);
+                next_number++;
+            }
+        }
+        // Send termination signal to slaves
         for (int i = 1; i < size; i++) {
-            if (num <= MAX_VALUE) {
-                MPI_Send(&num, 1, MPI_INT, i, 0, MPI_COMM_WORLD);
-                num++;
-            } else {
-                MPI_Send(&num, 1, MPI_INT, i, 1, MPI_COMM_WORLD);  
-                active_slaves--;
-            }
+            int terminate = -1;
+            MPI_Send(&terminate, 1, MPI_INT, i, 0, MPI_COMM_WORLD);
         }
-
-        while (active_slaves > 0) {
-            MPI_Recv(&result, 1, MPI_INT, MPI_ANY_SOURCE, MPI_ANY_TAG, MPI_COMM_WORLD, &status);
-            sender = status.MPI_SOURCE;
-
-            if (result > 0) {
-                printf("Prime: %d\n", result);
-            }
-
-            if (num <= MAX_VALUE) {
-                MPI_Send(&num, 1, MPI_INT, sender, 0, MPI_COMM_WORLD);
-                num++;
-            } else {
-                MPI_Send(&num, 1, MPI_INT, sender, 1, MPI_COMM_WORLD);  // Terminate
-                active_slaves--;
-            }
-        }
-    } else {  
-        int num;
-        MPI_Status status;
-
+    } else { // Slave processes
+        int number_to_test;
+        int result;
         while (1) {
-            MPI_Send(&rank, 1, MPI_INT, 0, 0, MPI_COMM_WORLD);  
-            MPI_Recv(&num, 1, MPI_INT, 0, MPI_ANY_TAG, MPI_COMM_WORLD, &status);
-
-            if (status.MPI_TAG == 1) break;  
-
-            int result = is_prime(num) ? num : -num;
+            // Request a number
             MPI_Send(&result, 1, MPI_INT, 0, 0, MPI_COMM_WORLD);
+
+            // Receive a number to test
+            MPI_Recv(&number_to_test, 1, MPI_INT, 0, 0, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+
+            if (number_to_test < 0) {
+                // Termination signal received
+                break;
+            }
+
+            if (is_prime(number_to_test)) {
+                result = number_to_test;
+            } else {
+                result = -number_to_test;
+            }
+
         }
     }
 
