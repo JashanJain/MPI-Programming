@@ -1,5 +1,2 @@
 # MPI-Programming
-Parallel and dsitributed computing using open MPI.
-
-Assignement 2
-/home/jashan-jain/Pictures/Screenshots/Screenshot from 2025-03-18 23-31-55.png
+This repo contains MPI programming for Parallel and dsitributed computing using open MPI.
