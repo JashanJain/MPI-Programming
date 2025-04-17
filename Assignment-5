@@ -1,0 +1,108 @@
+%%writefile assignment5.cu
+
+#include <stdio.h>
+#include <cuda_runtime.h>
+#define N 1000
+
+// Statically defined global variables on device
+__device__ float d_A[N];
+__device__ float d_B[N];
+__device__ float d_C[N];
+
+// Vector addition kernel
+__global__ void vectorAdd(int numElements)
+{
+    int i = blockDim.x * blockIdx.x + threadIdx.x;
+    if (i < numElements)
+    {
+        // Access global variables directly
+        d_C[i] = d_A[i] + d_B[i];
+    }
+}
+
+int main(void)
+{
+    // Host arrays
+    float h_A[N];
+    float h_B[N];
+    float h_C[N];
+
+    // Initialize input vectors
+    for (int i = 0; i < N; i++)
+    {
+        h_A[i] = rand() / (float)RAND_MAX;
+        h_B[i] = rand() / (float)RAND_MAX;
+    }
+
+    // Copy host arrays to device global variables
+    cudaMemcpyToSymbol(d_A, h_A, N * sizeof(float));
+    cudaMemcpyToSymbol(d_B, h_B, N * sizeof(float));
+
+    // Launch configuration
+    int threadsPerBlock = 256;
+    int blocksPerGrid = (N + threadsPerBlock - 1) / threadsPerBlock;
+    printf("CUDA kernel launch with %d blocks of %d threads\n", blocksPerGrid, threadsPerBlock);
+
+    // Create timing events
+    cudaEvent_t start, stop;
+    cudaEventCreate(&start);
+    cudaEventCreate(&stop);
+
+    // Record start event
+    cudaEventRecord(start);
+
+    // Launch kernel
+    vectorAdd<<<blocksPerGrid, threadsPerBlock>>>(N);
+
+    // Record stop event
+    cudaEventRecord(stop);
+    cudaEventSynchronize(stop);
+
+    // Calculate elapsed time
+    float milliseconds = 0;
+    cudaEventElapsedTime(&milliseconds, start, stop);
+    printf("Kernel execution time: %.4f ms\n", milliseconds);
+
+    // Copy result back to host
+    cudaMemcpyFromSymbol(h_C, d_C, N * sizeof(float));
+
+    // Verify results
+    for (int i = 0; i < 5; i++)
+    {
+        printf("%.2f + %.2f = %.2f\n", h_A[i], h_B[i], h_C[i]);
+    }
+
+
+    cudaDeviceProp deviceProp;
+    cudaGetDeviceProperties(&deviceProp, 0);
+
+    // Theoretical bandwidth
+    float memoryClockRate = deviceProp.memoryClockRate * 1000.0f; // Convert kHz to Hz
+    float memoryBusWidth = deviceProp.memoryBusWidth;
+    float theoreticalBW = (memoryClockRate * memoryBusWidth * 2.0f) / (8.0f * 1e9);
+
+    printf("\nDevice Properties:\n");
+    printf("Device name: %s\n", deviceProp.name);
+    printf("Memory Clock Rate (kHz): %d\n", deviceProp.memoryClockRate);
+    printf("Memory Bus Width (bits): %d\n", deviceProp.memoryBusWidth);
+    printf("Theoretical Bandwidth: %.2f GB/s\n", theoreticalBW);
+
+    // Measured bandwidth
+    float bytesRead = 2.0f * N * sizeof(float);
+    float bytesWritten = N * sizeof(float);
+    float totalBytes = bytesRead + bytesWritten;
+    float seconds = milliseconds / 1000.0f;
+    float measuredBW = totalBytes / seconds / 1e9;
+
+    printf("\nBandwidth Measurements:\n");
+    printf("Data Read: %.2f MB\n", bytesRead / (1024 * 1024));
+    printf("Data Written: %.2f MB\n", bytesWritten / (1024 * 1024));
+    printf("Total Data: %.2f MB\n", totalBytes / (1024 * 1024));
+    printf("Measured Bandwidth: %.2f GB/s\n", measuredBW);
+    printf("Bandwidth Utilization: %.2f%%\n", (measuredBW / theoreticalBW) * 100.0f);
+
+    cudaEventDestroy(start);
+    cudaEventDestroy(stop);
+
+    return 0;
+}
