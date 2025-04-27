@@ -1,0 +1,89 @@
+%%writefile sqrt_cuda.cu
+#include <stdio.h>
+#include <stdlib.h>
+#include <math.h>
+#include <cuda_runtime.h>
+
+// CUDA kernel for computing square root of array elements
+__global__ void sqrtKernel(float *A, float *C, int n) {
+    int i = blockIdx.x * blockDim.x + threadIdx.x;
+    if (i < n) {
+        C[i] = sqrtf(A[i]);
+    }
+}
+
+int main() {
+    int n = 50000;  // Default size, will be changed via environment variable
+    char* env_size = getenv("ARRAY_SIZE");
+    if (env_size != NULL) {
+        n = atoi(env_size);
+    }
+    
+    printf("Computing square root for array of size: %d\n", n);
+    
+    size_t size = n * sizeof(float);
+    
+    // Allocate memory on host
+    float *h_A = (float *)malloc(size);
+    float *h_C = (float *)malloc(size);
+    
+    // Initialize input array with random values
+    for (int i = 0; i < n; i++) {
+        h_A[i] = rand() / (float)RAND_MAX * 100.0f;  // Fixed syntax here
+    }
+    
+    // Allocate memory on device
+    float *d_A, *d_C;
+    cudaMalloc((void **)&d_A, size);
+    cudaMalloc((void **)&d_C, size);
+    
+    // Copy input from host to device
+    cudaMemcpy(d_A, h_A, size, cudaMemcpyHostToDevice);
+    
+    // Define grid and block dimensions
+    int threadsPerBlock = 256;
+    int blocksPerGrid = (n + threadsPerBlock - 1) / threadsPerBlock;
+    
+    // Create CUDA events for timing
+    cudaEvent_t start, stop;
+    cudaEventCreate(&start);
+    cudaEventCreate(&stop);
+    
+    // Record start time
+    cudaEventRecord(start);
+    
+    // Launch kernel
+    sqrtKernel<<<blocksPerGrid, threadsPerBlock>>>(d_A, d_C, n);
+    
+    // Wait for kernel to finish
+    cudaDeviceSynchronize();
+    
+    // Record end time
+    cudaEventRecord(stop);
+    cudaEventSynchronize(stop);
+    
+    // Calculate elapsed time
+    float milliseconds = 0;
+    cudaEventElapsedTime(&milliseconds, start, stop);
+    printf("Kernel execution time: %f ms\n", milliseconds);
+    
+    // Copy result from device to host
+    cudaMemcpy(h_C, d_C, size, cudaMemcpyDeviceToHost);
+    
+    // Verify results (check first few elements)
+    printf("Verification (first 5 elements):\n");
+    int verify_count = n < 5 ? n : 5;
+    for (int i = 0; i < verify_count; i++) {
+        printf("sqrt(%f) = %f (CUDA) vs %f (CPU)\n", h_A[i], h_C[i], sqrt(h_A[i]));
+    }
+    
+    // Clean up
+    cudaFree(d_A);
+    cudaFree(d_C);
+    cudaEventDestroy(start);
+    cudaEventDestroy(stop);
+    free(h_A);
+    free(h_C);
+    
+    return 0;
+}
